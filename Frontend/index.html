@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="AI-powered campus placement copilot for engineering students." />
+    <title>CampusPath AI · Placement Copilot</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <div class="ambient ambient-one"></div>
+    <div class="ambient ambient-two"></div>
+
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="CampusPath AI home">
+        <span class="brand-mark">C</span>
+        <span>CampusPath <strong>AI</strong></span>
+      </a>
+      <div class="topbar-actions">
+        <div class="status"><span class="status-dot"></span><span id="statusText">Checking AI service</span></div>
+        <button id="themeToggle" class="icon-button" type="button" aria-label="Switch to dark theme" title="Toggle theme">
+          <span class="theme-icon">◐</span>
+        </button>
+      </div>
+    </header>
+
+    <main>
+      <section class="hero">
+        <div class="eyebrow"><span>✦</span> Built for ambitious engineering students</div>
+        <h1>Your path from <span>campus</span><br />to career, made clear.</h1>
+        <p>One AI copilot for placement doubts, personalized roadmaps, resume feedback, and interview preparation.</p>
+        <div class="hero-pills">
+          <span>Powered by Amazon Bedrock</span>
+          <span>Agentic guidance</span>
+          <span>Action-first answers</span>
+        </div>
+      </section>
+
+      <section class="workspace">
+        <nav class="tool-tabs" aria-label="CampusPath tools">
+          <button class="tab active" data-tool="placement"><span>01</span> Placement Coach</button>
+          <button class="tab" data-tool="career"><span>02</span> Career Roadmap</button>
+          <button class="tab" data-tool="resume"><span>03</span> Resume Review</button>
+          <button class="tab" data-tool="interview"><span>04</span> Interview Prep</button>
+        </nav>
+
+        <details class="model-settings">
+          <summary>
+            <span class="settings-summary">
+              <span class="settings-icon">⌁</span>
+              <span><strong>Model controls</strong><small id="settingsSummary">Nova 2 Lite · T 0.4 · Top P 0.9 · 2048 tokens</small></span>
+            </span>
+            <span class="settings-action">Configure <b>⌄</b></span>
+          </summary>
+          <div class="settings-grid">
+            <label>Bedrock model
+              <select id="modelId">
+                <option value="global.amazon.nova-2-lite-v1:0">Amazon Nova 2 Lite (recommended)</option>
+                <option value="apac.amazon.nova-lite-v1:0">Amazon Nova Lite</option>
+                <option value="apac.amazon.nova-micro-v1:0">Amazon Nova Micro</option>
+                <option value="apac.amazon.nova-pro-v1:0">Amazon Nova Pro</option>
+                <option value="apac.anthropic.claude-3-7-sonnet-20250219-v1:0">Claude 3.7 Sonnet</option>
+                <option value="apac.anthropic.claude-3-5-sonnet-20241022-v2:0">Claude 3.5 Sonnet v2</option>
+                <option value="apac.anthropic.claude-3-haiku-20240307-v1:0">Claude 3 Haiku</option>
+              </select>
+            </label>
+            <label>Temperature <span id="temperatureValue">0.4</span>
+              <input id="temperature" type="range" min="0" max="1" step="0.1" value="0.4" />
+            </label>
+            <label>Top P <span id="topPValue">0.9</span>
+              <input id="topP" type="range" min="0" max="1" step="0.1" value="0.9" />
+            </label>
+            <label>Max output tokens
+              <input id="maxTokens" type="number" min="1" max="8192" value="2048" />
+            </label>
+          </div>
+          <p class="settings-note">These controls apply to every CampusPath workflow. Availability and pricing depend on your AWS account and region.</p>
+        </details>
+
+        <div class="tool-grid">
+          <section class="panel input-panel">
+            <div class="panel-heading">
+              <div>
+                <span class="section-label" id="toolNumber">TOOL 01</span>
+                <h2 id="toolTitle">Ask your placement coach</h2>
+              </div>
+              <span class="spark">✦</span>
+            </div>
+            <p class="panel-copy" id="toolDescription">Get direct answers about placement strategy, eligibility, preparation, and company rounds.</p>
+
+            <form id="placementForm" class="tool-form active">
+              <label>What would you like help with?
+                <textarea name="question" rows="6" minlength="5" required placeholder="I have 30 days before campus placements. How should I balance DSA, aptitude, and project preparation?"></textarea>
+              </label>
+              <label>About you <span>(optional)</span>
+                <input name="student_profile" placeholder="3rd year CSE, comfortable with Python, beginner in DSA" />
+              </label>
+              <button type="submit" class="primary-button">Build my action plan <span>→</span></button>
+            </form>
+
+            <form id="careerForm" class="tool-form">
+              <div class="field-row">
+                <label>Career goal<input name="goal" required placeholder="Cloud / DevOps Engineer" /></label>
+                <label>Degree<input name="degree" required placeholder="B.Tech CSE" /></label>
+              </div>
+              <div class="field-row">
+                <label>Current year<input name="year" required placeholder="3rd year" /></label>
+                <label>Hours per week<input name="hours_per_week" type="number" value="8" min="1" max="80" /></label>
+              </div>
+              <label>Current skills<textarea name="skills" rows="4" placeholder="Python, basic AWS, Git, SQL"></textarea></label>
+              <button type="submit" class="primary-button">Create my roadmap <span>→</span></button>
+            </form>
+
+            <form id="resumeForm" class="tool-form">
+              <label>Target role<input name="target_role" required placeholder="Software Development Engineer" /></label>
+              <label>Paste resume text <span>(kept only for this request)</span>
+                <textarea name="resume_text" rows="11" minlength="50" required placeholder="Paste your resume content here..."></textarea>
+              </label>
+              <button type="submit" class="primary-button">Review my resume <span>→</span></button>
+            </form>
+
+            <form id="interviewForm" class="tool-form">
+              <label>Target role<input name="role" required placeholder="Backend Developer" /></label>
+              <div class="field-row">
+                <label>Interview type
+                  <select name="interview_type"><option>Mixed</option><option>Technical</option><option>HR</option></select>
+                </label>
+                <label>Current level
+                  <select name="experience_level"><option>Beginner</option><option>Intermediate</option><option>Advanced</option></select>
+                </label>
+              </div>
+              <label>Focus topics<textarea name="focus_topics" rows="4" placeholder="Python, APIs, databases, project discussion"></textarea></label>
+              <button type="submit" class="primary-button">Generate prep pack <span>→</span></button>
+            </form>
+          </section>
+
+          <section id="chatPanel" class="panel result-panel chat-panel" aria-live="polite">
+            <div class="result-topline">
+              <div>
+                <span class="section-label">CAMPUSPATH CONVERSATION</span>
+                <p id="chatSubtitle">Placement Coach</p>
+              </div>
+              <div class="chat-actions">
+                <button id="copyButton" class="copy-button" hidden>Copy last</button>
+                <button id="clearButton" class="copy-button" type="button">Clear</button>
+              </div>
+            </div>
+            <div id="chatThread" class="chat-thread">
+              <div class="chat-welcome">
+                <div class="orbit"><span>✦</span></div>
+                <h3>Clarity starts here</h3>
+                <p>Share your context and CampusPath will turn it into a practical next step.</p>
+              </div>
+            </div>
+            <div class="chat-footer">
+              <span><i></i> Responses use your model controls</span>
+              <span>Placement Coach: Enter submits · Shift + Enter adds a line</span>
+            </div>
+          </section>
+        </div>
+      </section>
+    </main>
+
+    <footer><span>CampusPath AI</span><span>Guidance, not guarantees · Always verify company-specific details</span></footer>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify/dist/purify.min.js"></script>
+    <script src="/static/app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,12 @@
+agentcore create --name CampusAgent \
+ --framework Strands \
+ --protocol HTTP \
+ --model-provider Bedrock \
+ --memory none 
+
+agentcore dev --no-browser
+
+
+cd Frontend
+uvicorn backend.main:app --reload --port 8000
+

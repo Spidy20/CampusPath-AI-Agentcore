@@ -1,0 +1,332 @@
+{
+	"info": {
+		"_postman_id": "dd73c0cd-20f4-4dd1-934b-8fd0bb67e36d",
+		"name": "CampusPath AI - AgentCore",
+		"description": "# CampusPath AI AgentCore API\n\nAgentCore exposes a single HTTP endpoint: `POST /invocations`.\nCampusPath routes work by sending a required `route` field in the JSON body.\n\n## Allowed routes\n\n- `placement-doubt`\n- `career-roadmap`\n- `resume-review`\n- `interview-prep`\n\nYou may also send `action` instead of `route`. Invalid or missing values return a validation error with `allowed_routes`.\n\n## Shared model controls\n\nOptional on every request. Defaults are applied when omitted:\n\n| Field | Default |\n| --- | --- |\n| `model_id` | `global.amazon.nova-2-lite-v1:0` |\n| `temperature` | `0.4` |\n| `top_p` | `0.9` |\n| `max_tokens` | `2048` |\n\n## Response contract\n\nSuccessful responses include:\n\n- `route` and `route_title`\n- `answer`\n- `model_params` (values actually used)\n- `usage` (`input_tokens`, `output_tokens`, `total_tokens`)\n- `cost` (approximate USD estimate)\n- `latency_ms`\n\n## Start AgentCore\n\n```bash\nsource campuspath-venv/bin/activate\ncd CampusAgent\nagentcore dev --no-browser\n```",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "Runtime health",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": "{{baseUrl}}/ping",
+				"description": "Checks whether the local AgentCore runtime is running."
+			},
+			"response": []
+		},
+		{
+			"name": "Validation examples",
+			"item": [
+				{
+					"name": "Missing route - validation error",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "X-Amzn-Bedrock-AgentCore-Runtime-Session-Id",
+								"value": "{{sessionId}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"prompt\": \"How should I prepare for campus placements?\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": "{{baseUrl}}/invocations",
+						"description": "Omits `route` / `action`. Expect `ok: false` and a validation error listing allowed routes."
+					},
+					"response": []
+				},
+				{
+					"name": "Invalid route - validation error",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "X-Amzn-Bedrock-AgentCore-Runtime-Session-Id",
+								"value": "{{sessionId}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"route\": \"salary-negotiation\",\n  \"prompt\": \"What salary should I ask for?\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": "{{baseUrl}}/invocations",
+						"description": "Uses an unsupported route. Expect a validation error."
+					},
+					"response": []
+				}
+			],
+			"description": "Shows how CampusPath rejects missing or unknown routes."
+		},
+		{
+			"name": "Campus placement workflows",
+			"item": [
+				{
+					"name": "Placement doubt",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Accept",
+								"value": "application/json"
+							},
+							{
+								"key": "X-Amzn-Bedrock-AgentCore-Runtime-Session-Id",
+								"value": "{{sessionId}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"route\": \"placement-doubt\",\n  \"prompt\": \"I am a third-year B.Tech CSE student. I know Python and basic data structures, but my aptitude is weak. Campus placements begin in 30 days. Create a realistic preparation strategy that balances DSA, aptitude, core CS subjects, projects, and mock interviews. Include a seven-day starter plan.\",\n  \"model_id\": \"{{modelId}}\",\n  \"temperature\": {{temperature}},\n  \"top_p\": {{topP}},\n  \"max_tokens\": {{maxTokens}}\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": "{{baseUrl}}/invocations",
+						"description": "Route: `placement-doubt`\n\nRequired:\n- `route` (or `action`)\n- `prompt` OR `question`\n\nOptional:\n- `student_profile`\n- `model_id`, `temperature`, `top_p`, `max_tokens`\n\nResponse includes answer, model_params used, Bedrock token usage, approximate cost, and latency."
+					},
+					"response": []
+				},
+				{
+					"name": "Career roadmap",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Accept",
+								"value": "application/json"
+							},
+							{
+								"key": "X-Amzn-Bedrock-AgentCore-Runtime-Session-Id",
+								"value": "{{sessionId}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"route\": \"career-roadmap\",\n  \"goal\": \"Cloud / DevOps Engineer\",\n  \"degree\": \"B.Tech IT\",\n  \"year\": \"3rd year\",\n  \"skills\": \"Python, Git, Linux basics, introductory AWS\",\n  \"hours_per_week\": 10,\n  \"model_id\": \"{{modelId}}\",\n  \"temperature\": {{temperature}},\n  \"top_p\": {{topP}},\n  \"max_tokens\": {{maxTokens}}\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": "{{baseUrl}}/invocations",
+						"description": "Route: `career-roadmap`\n\nRequired:\n- `route`\n- `prompt` OR `goal`\n\nOptional structured fields: `degree`, `year`, `skills`, `hours_per_week` plus model controls."
+					},
+					"response": []
+				},
+				{
+					"name": "Resume review",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Accept",
+								"value": "application/json"
+							},
+							{
+								"key": "X-Amzn-Bedrock-AgentCore-Runtime-Session-Id",
+								"value": "{{sessionId}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"route\": \"resume-review\",\n  \"target_role\": \"Backend Developer\",\n  \"resume_text\": \"B.Tech Computer Engineering, graduating 2027.\\nSkills: Python, FastAPI, SQL, Git, AWS basics.\\nProject: Campus event platform - created APIs in FastAPI and used PostgreSQL. Deployed the application to AWS.\\nExperience: Technical club volunteer; helped organize two coding workshops for 80 students.\",\n  \"model_id\": \"{{modelId}}\",\n  \"temperature\": {{temperature}},\n  \"top_p\": {{topP}},\n  \"max_tokens\": {{maxTokens}}\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": "{{baseUrl}}/invocations",
+						"description": "Route: `resume-review`\n\nRequired:\n- `route`\n- `prompt` OR `resume_text`\n\nOptional: `target_role` and model controls. Avoid sensitive personal data in demos."
+					},
+					"response": []
+				},
+				{
+					"name": "Interview preparation",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Accept",
+								"value": "application/json"
+							},
+							{
+								"key": "X-Amzn-Bedrock-AgentCore-Runtime-Session-Id",
+								"value": "{{sessionId}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"route\": \"interview-prep\",\n  \"role\": \"Backend Developer\",\n  \"interview_type\": \"Mixed\",\n  \"experience_level\": \"Beginner\",\n  \"focus_topics\": \"Python, REST APIs, SQL, database design, college project discussion\",\n  \"model_id\": \"{{modelId}}\",\n  \"temperature\": {{temperature}},\n  \"top_p\": {{topP}},\n  \"max_tokens\": {{maxTokens}}\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": "{{baseUrl}}/invocations",
+						"description": "Route: `interview-prep`\n\nRequired:\n- `route`\n- `prompt` OR `role`\n\nOptional: `interview_type`, `experience_level`, `focus_topics`, plus model controls."
+					},
+					"response": []
+				},
+				{
+					"name": "Placement doubt with defaults only",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "X-Amzn-Bedrock-AgentCore-Runtime-Session-Id",
+								"value": "{{sessionId}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"route\": \"placement-doubt\",\n  \"question\": \"How should I balance DSA and projects in the last month before placements?\",\n  \"student_profile\": \"Third-year CSE, Python, beginner DSA\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": "{{baseUrl}}/invocations",
+						"description": "Omits model controls so the agent applies defaults. Response still echoes the resolved `model_params`."
+					},
+					"response": []
+				}
+			],
+			"description": "All workflows hit `POST /invocations` and are selected with the body `route` field."
+		},
+		{
+			"name": "Payload format examples",
+			"item": [
+				{
+					"name": "Using action alias",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "X-Amzn-Bedrock-AgentCore-Runtime-Session-Id",
+								"value": "{{sessionId}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"action\": \"placement-doubt\",\n  \"prompt\": \"Give me three high-impact actions for the week before campus interviews.\",\n  \"temperature\": 0.2,\n  \"max_tokens\": 800\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": "{{baseUrl}}/invocations",
+						"description": "`action` is accepted as an alias for `route`."
+					},
+					"response": []
+				},
+				{
+					"name": "Bedrock messages format",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "X-Amzn-Bedrock-AgentCore-Runtime-Session-Id",
+								"value": "{{sessionId}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"route\": \"placement-doubt\",\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": [\n        {\n          \"text\": \"What are the three most important things I should do one week before a campus interview?\"\n        }\n      ]\n    }\n  ],\n  \"model_id\": \"{{modelId}}\",\n  \"temperature\": {{temperature}},\n  \"top_p\": {{topP}},\n  \"max_tokens\": {{maxTokens}}\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": "{{baseUrl}}/invocations",
+						"description": "Uses Bedrock-style `messages[]` content blocks with a required `route`."
+					},
+					"response": []
+				}
+			],
+			"description": "Extra payload shapes supported by the CampusPath AgentCore entrypoint."
+		}
+	],
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "http://localhost:8080"
+		},
+		{
+			"key": "sessionId",
+			"value": "campuspath-postman-demo-session-001"
+		},
+		{
+			"key": "modelId",
+			"value": "global.amazon.nova-2-lite-v1:0"
+		},
+		{
+			"key": "temperature",
+			"value": "0.4"
+		},
+		{
+			"key": "topP",
+			"value": "0.9"
+		},
+		{
+			"key": "maxTokens",
+			"value": "2048"
+		}
+	]
+}
