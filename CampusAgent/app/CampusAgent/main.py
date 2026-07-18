@@ -16,6 +16,7 @@ from strands.models.bedrock import BedrockModel
 from prompt_templates import (
     BASE_SYSTEM_PROMPT,
     ROUTE_PROMPTS,
+    build_datetime_context,
     build_tagged_student_request,
 )
 
@@ -24,11 +25,21 @@ log = app.logger
 
 DEFAULT_MODEL_ID = os.getenv(
     "BEDROCK_MODEL_ID",
-    "global.amazon.nova-2-lite-v1:0",
+    "apac.amazon.nova-pro-v1:0",
 )
 DEFAULT_TEMPERATURE = float(os.getenv("BEDROCK_TEMPERATURE", "0.4"))
 DEFAULT_TOP_P = float(os.getenv("BEDROCK_TOP_P", "0.9"))
-DEFAULT_MAX_TOKENS = int(os.getenv("BEDROCK_MAX_TOKENS", "2048"))
+DEFAULT_MAX_TOKENS = int(os.getenv("BEDROCK_MAX_TOKENS", "4096"))
+
+# Resume-driven workflows get a stronger default model for nuanced feedback.
+RESUME_WORKFLOWS_MODEL_ID = os.getenv(
+    "BEDROCK_RESUME_MODEL_ID",
+    "apac.anthropic.claude-3-7-sonnet-20250219-v1:0",
+)
+ROUTE_MODEL_DEFAULTS = {
+    "resume-review": RESUME_WORKFLOWS_MODEL_ID,
+    "interview-prep": RESUME_WORKFLOWS_MODEL_ID,
+}
 
 # Approximate on-demand prices (USD per 1M tokens). Demo estimates only.
 MODEL_PRICING_USD_PER_1M = {
@@ -84,7 +95,8 @@ def _normalize_route(payload: dict[str, Any]) -> str:
     return key
 
 
-def _resolve_model_params(payload: dict[str, Any]) -> dict[str, Any]:
+def _resolve_model_params(payload: dict[str, Any], route: str | None = None) -> dict[str, Any]:
+    default_model = ROUTE_MODEL_DEFAULTS.get(route or "", DEFAULT_MODEL_ID)
     temperature = payload.get("temperature", payload.get("temp", DEFAULT_TEMPERATURE))
     top_p = payload.get("top_p", payload.get("topP", DEFAULT_TOP_P))
     max_tokens = payload.get(
@@ -93,7 +105,7 @@ def _resolve_model_params(payload: dict[str, Any]) -> dict[str, Any]:
     )
     model_id = payload.get(
         "model_id",
-        payload.get("model-id", payload.get("modelId", DEFAULT_MODEL_ID)),
+        payload.get("model-id", payload.get("modelId", default_model)),
     )
 
     try:
@@ -184,8 +196,15 @@ def _build_user_prompt(route: str, payload: dict[str, Any]) -> str:
             f"Target role: {role}\n"
             f"Interview type: {payload.get('interview_type', 'Mixed')}\n"
             f"Level: {payload.get('experience_level', 'Beginner')}\n"
+            f"Interview date: {payload.get('interview_date') or 'Not provided'}\n"
             f"Focus topics: {payload.get('focus_topics', 'General placement preparation')}"
         )
+        resume_text = payload.get("resume_text") or payload.get("resume")
+        if resume_text:
+            content += (
+                "\n\nCandidate resume (tailor questions to this experience):\n"
+                f"{resume_text}"
+            )
         return build_tagged_student_request(route, content)
 
     raise RouteValidationError(f"Unable to build prompt for route '{route}'.")
@@ -253,6 +272,7 @@ def _create_agent(route: str, params: dict[str, Any]) -> Agent:
     )
     system_prompt = (
         f"{BASE_SYSTEM_PROMPT}\n\n"
+        f"{build_datetime_context()}\n\n"
         f"{ROUTE_PROMPTS[route]}"
     )
     return Agent(
@@ -307,7 +327,7 @@ async def invoke(payload, context):
 
     try:
         route = _normalize_route(payload)
-        params = _resolve_model_params(payload)
+        params = _resolve_model_params(payload, route)
         user_prompt = _build_user_prompt(route, payload)
     except RouteValidationError as exc:
         return _error_response(

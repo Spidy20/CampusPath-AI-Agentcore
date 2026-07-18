@@ -3,13 +3,18 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
+import re
 import time
 import uuid
+from datetime import date
 from pathlib import Path
 from typing import Literal
 
-from fastapi import FastAPI, HTTPException
+import boto3
+from botocore.exceptions import BotoCoreError, ClientError
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -19,6 +24,7 @@ from strands.models.bedrock import BedrockModel
 from .prompt_templates import (
     BASE_SYSTEM_PROMPT,
     ROUTE_PROMPTS,
+    build_datetime_context,
     build_tagged_student_request,
 )
 
@@ -26,11 +32,85 @@ from .prompt_templates import (
 FRONTEND_DIR = Path(__file__).resolve().parents[1]
 DEFAULT_MODEL_ID = os.getenv(
     "BEDROCK_MODEL_ID",
-    "global.amazon.nova-2-lite-v1:0",
+    "apac.amazon.nova-pro-v1:0",
 )
 DEFAULT_TEMPERATURE = float(os.getenv("BEDROCK_TEMPERATURE", "0.4"))
 DEFAULT_TOP_P = float(os.getenv("BEDROCK_TOP_P", "0.9"))
-DEFAULT_MAX_TOKENS = int(os.getenv("BEDROCK_MAX_TOKENS", "2048"))
+DEFAULT_MAX_TOKENS = int(os.getenv("BEDROCK_MAX_TOKENS", "4096"))
+
+# Resume-driven workflows get a stronger default model for nuanced feedback.
+RESUME_WORKFLOWS_MODEL_ID = os.getenv(
+    "BEDROCK_RESUME_MODEL_ID",
+    "apac.anthropic.claude-3-7-sonnet-20250219-v1:0",
+)
+ROUTE_MODEL_DEFAULTS = {
+    "resume-review": RESUME_WORKFLOWS_MODEL_ID,
+    "interview-prep": RESUME_WORKFLOWS_MODEL_ID,
+}
+
+AWS_REGION = os.getenv("AWS_REGION") or os.getenv("AWS_DEFAULT_REGION") or "ap-south-1"
+RESUME_BUCKET_NAME = os.getenv("RESUME_BUCKET_NAME", "sagemaker-tutorials-mlhub")
+RESUME_KEY_PREFIX = os.getenv("RESUME_KEY_PREFIX", "resume-uploads/")
+RESUME_EXTRACTOR_FUNCTION_NAME = os.getenv(
+    "RESUME_EXTRACTOR_FUNCTION_NAME",
+    "campuspath-resume-pdf-extractor",
+)
+MAX_RESUME_UPLOAD_BYTES = int(os.getenv("MAX_RESUME_UPLOAD_BYTES", str(5 * 1024 * 1024)))
+MAX_RESUME_TEXT_CHARS = 20000
+SAFE_FILENAME_RE = re.compile(r"[^A-Za-z0-9._-]+")
+
+ROLE_PATTERN = re.compile(
+    r"(?i)\b"
+    r"(?:(?:senior|junior|lead|principal|staff|associate|graduate|trainee)\s+)?"
+    r"(?:(?:software|backend|back[- ]end|frontend|front[- ]end|full[- ]?stack|data|ml|"
+    r"machine\s+learning|ai|devops|cloud|mobile|android|ios|web|qa|test|security|"
+    r"platform|site\s+reliability|embedded|systems?|network|database|business|financial|"
+    r"product|research)\s+)?"
+    r"(?:engineer|developer|scientist|analyst|architect|designer|consultant|"
+    r"administrator|programmer|manager|specialist|researcher|intern)\b"
+)
+EXPERIENCE_HEADER_PATTERN = re.compile(
+    r"(?i)^\s*(?:work|professional|employment|industry)?\s*"
+    r"(?:experience|history|internships?)\s*:?\s*$"
+)
+SKILLS_SECTION_PATTERN = re.compile(
+    r"(?i)^\s*(?:technical\s+)?(?:skills?|projects?|education|certifications?|"
+    r"achievements?|awards?)\b"
+)
+ROLE_CASING_FIXES = {
+    "Devops": "DevOps", "Ml": "ML", "Ai": "AI", "Ios": "iOS", "Qa": "QA",
+    "Sql": "SQL", "Api": "API",
+}
+
+
+def _titleize_role(raw: str) -> str:
+    words = raw.split()
+    return " ".join(ROLE_CASING_FIXES.get(w.title(), w.title()) for w in words)
+
+
+def _suggest_role(resume_text: str) -> str | None:
+    """Best-effort role title: most recent job in the experience section first,
+    then the resume headline, then anywhere in the document."""
+    lines = [line.strip() for line in resume_text.splitlines() if line.strip()]
+
+    # Resumes list experience newest-first, so the first title after the
+    # experience header is the candidate's latest role.
+    for index, line in enumerate(lines):
+        if not EXPERIENCE_HEADER_PATTERN.match(line):
+            continue
+        for candidate in lines[index + 1 : index + 16]:
+            if SKILLS_SECTION_PATTERN.match(candidate):
+                break
+            match = ROLE_PATTERN.search(candidate)
+            if match:
+                return _titleize_role(match.group(0))
+        break
+
+    for chunk in lines[:20] + [resume_text]:
+        match = ROLE_PATTERN.search(chunk)
+        if match:
+            return _titleize_role(match.group(0))
+    return None
 
 MODEL_PRICING_USD_PER_1M = {
     "amazon.nova-micro": {"input": 0.035, "output": 0.14},
@@ -71,7 +151,9 @@ class InterviewRequest(ModelParamsMixin):
     role: str = Field(min_length=2, max_length=200)
     interview_type: Literal["Technical", "HR", "Mixed"] = "Mixed"
     experience_level: Literal["Beginner", "Intermediate", "Advanced"] = "Beginner"
+    interview_date: date | None = None
     focus_topics: str = Field(default="General placement preparation", max_length=1000)
+    resume_text: str | None = Field(default=None, max_length=20000)
 
 
 class ModelParams(BaseModel):
@@ -108,6 +190,19 @@ class AgentResponse(BaseModel):
     latency_ms: float
 
 
+class ResumeExtractResponse(BaseModel):
+    ok: bool = True
+    filename: str
+    content_type: str
+    page_count: int
+    character_count: int
+    resume_text: str
+    suggested_role: str | None = None
+    warnings: list[str] = Field(default_factory=list)
+    request_id: str
+    latency_ms: float
+
+
 app = FastAPI(
     title="CampusPath AI API",
     description="Placement, career, resume and interview guidance powered by Amazon Bedrock.",
@@ -123,9 +218,9 @@ app.add_middleware(
 app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")
 
 
-def _resolve_params(body: ModelParamsMixin) -> ModelParams:
+def _resolve_params(route: str, body: ModelParamsMixin) -> ModelParams:
     return ModelParams(
-        model_id=body.model_id or DEFAULT_MODEL_ID,
+        model_id=body.model_id or ROUTE_MODEL_DEFAULTS.get(route, DEFAULT_MODEL_ID),
         temperature=DEFAULT_TEMPERATURE if body.temperature is None else body.temperature,
         top_p=DEFAULT_TOP_P if body.top_p is None else body.top_p,
         max_tokens=DEFAULT_MAX_TOKENS if body.max_tokens is None else body.max_tokens,
@@ -193,7 +288,11 @@ def _invoke_bedrock(route: str, user_prompt: str, params: ModelParams) -> tuple[
     )
     agent = Agent(
         model=model,
-        system_prompt=f"{BASE_SYSTEM_PROMPT}\n\n{ROUTE_PROMPTS[route]}",
+        system_prompt=(
+            f"{BASE_SYSTEM_PROMPT}\n\n"
+            f"{build_datetime_context()}\n\n"
+            f"{ROUTE_PROMPTS[route]}"
+        ),
         tools=[],
     )
     result = agent(build_tagged_student_request(route, user_prompt))
@@ -215,7 +314,7 @@ def _demo_answer(route: str) -> str:
 
 async def _answer(route: str, user_prompt: str, body: ModelParamsMixin) -> AgentResponse:
     request_id = str(uuid.uuid4())
-    params = _resolve_params(body)
+    params = _resolve_params(route, body)
     started = time.perf_counter()
 
     if os.getenv("CAMPUSPATH_DEMO_MODE", "").lower() in {"1", "true", "yes"}:
@@ -281,6 +380,111 @@ async def _answer(route: str, user_prompt: str, body: ModelParamsMixin) -> Agent
         raise HTTPException(status_code=503, detail=detail) from exc
 
 
+def _s3_client():
+    return boto3.client("s3", region_name=AWS_REGION)
+
+
+def _lambda_client():
+    return boto3.client("lambda", region_name=AWS_REGION)
+
+
+def _safe_filename(filename: str | None) -> str:
+    raw = Path(filename or "resume.pdf").name
+    cleaned = SAFE_FILENAME_RE.sub("_", raw).strip("._") or "resume.pdf"
+    if not cleaned.lower().endswith(".pdf"):
+        cleaned = f"{cleaned}.pdf"
+    return cleaned[:120]
+
+
+def _validate_pdf_upload(filename: str, content_type: str | None, pdf_bytes: bytes) -> None:
+    if not pdf_bytes:
+        raise HTTPException(status_code=400, detail="Uploaded resume PDF is empty.")
+    if len(pdf_bytes) > MAX_RESUME_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Resume PDFs must be {MAX_RESUME_UPLOAD_BYTES // (1024 * 1024)} MB or smaller.",
+        )
+    lowered_name = filename.lower()
+    lowered_type = (content_type or "").lower()
+    allowed_types = {"application/pdf", "application/x-pdf", "binary/octet-stream", "application/octet-stream", ""}
+    if not lowered_name.endswith(".pdf") and lowered_type not in allowed_types:
+        raise HTTPException(status_code=400, detail="Only PDF resumes are supported.")
+    if lowered_type and lowered_type not in allowed_types and "pdf" not in lowered_type:
+        raise HTTPException(status_code=400, detail="Only PDF resumes are supported.")
+    if not pdf_bytes.startswith(b"%PDF"):
+        raise HTTPException(status_code=400, detail="Uploaded file is not a valid PDF.")
+
+
+def _upload_resume_pdf(pdf_bytes: bytes, filename: str) -> str:
+    key = f"{RESUME_KEY_PREFIX}{uuid.uuid4().hex}/{filename}"
+    _s3_client().put_object(
+        Bucket=RESUME_BUCKET_NAME,
+        Key=key,
+        Body=pdf_bytes,
+        ContentType="application/pdf",
+        Metadata={"source": "campuspath-resume-review"},
+    )
+    return key
+
+
+def _delete_resume_object(key: str) -> None:
+    try:
+        _s3_client().delete_object(Bucket=RESUME_BUCKET_NAME, Key=key)
+    except (BotoCoreError, ClientError):
+        # Cleanup is best-effort; extraction already completed or failed.
+        return
+
+
+def _invoke_resume_extractor(key: str, filename: str) -> dict:
+    payload = {
+        "bucket": RESUME_BUCKET_NAME,
+        "key": key,
+        "filename": filename,
+    }
+    response = _lambda_client().invoke(
+        FunctionName=RESUME_EXTRACTOR_FUNCTION_NAME,
+        InvocationType="RequestResponse",
+        Payload=json.dumps(payload).encode("utf-8"),
+    )
+    raw = response["Payload"].read()
+    try:
+        envelope = json.loads(raw.decode("utf-8") or "{}")
+    except json.JSONDecodeError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="Resume extractor returned an invalid response.",
+        ) from exc
+
+    if response.get("FunctionError"):
+        error_message = envelope.get("errorMessage") or "Resume extractor failed."
+        raise HTTPException(status_code=502, detail=str(error_message)[:300])
+
+    # Direct Lambda invoke returns either the handler dict or an API-style envelope.
+    if isinstance(envelope, dict) and "statusCode" in envelope and "body" in envelope:
+        status_code = int(envelope.get("statusCode") or 500)
+        body_raw = envelope.get("body")
+        try:
+            body = json.loads(body_raw) if isinstance(body_raw, str) else (body_raw or {})
+        except json.JSONDecodeError as exc:
+            raise HTTPException(
+                status_code=502,
+                detail="Resume extractor returned an invalid response body.",
+            ) from exc
+        if status_code >= 400 or not body.get("ok"):
+            raise HTTPException(
+                status_code=min(max(status_code, 400), 499) if 400 <= status_code < 500 else 502,
+                detail=str(body.get("error") or "Resume text extraction failed."),
+            )
+        return body
+
+    if not isinstance(envelope, dict) or not envelope.get("ok"):
+        raise HTTPException(
+            status_code=502,
+            detail=str(envelope.get("error") if isinstance(envelope, dict) else "Resume text extraction failed."),
+        )
+    return envelope
+
+
 @app.get("/", include_in_schema=False)
 async def frontend() -> FileResponse:
     return FileResponse(FRONTEND_DIR / "index.html")
@@ -296,6 +500,13 @@ async def health() -> dict[str, object]:
             "temperature": DEFAULT_TEMPERATURE,
             "top_p": DEFAULT_TOP_P,
             "max_tokens": DEFAULT_MAX_TOKENS,
+        },
+        "route_model_defaults": ROUTE_MODEL_DEFAULTS,
+        "resume_extraction": {
+            "bucket": RESUME_BUCKET_NAME,
+            "function_name": RESUME_EXTRACTOR_FUNCTION_NAME,
+            "region": AWS_REGION,
+            "max_upload_mb": MAX_RESUME_UPLOAD_BYTES // (1024 * 1024),
         },
     }
 
@@ -315,6 +526,69 @@ async def career_roadmap(body: CareerRequest) -> AgentResponse:
     return await _answer("career-roadmap", prompt, body)
 
 
+@app.post("/api/resume-extract", response_model=ResumeExtractResponse)
+async def resume_extract(file: UploadFile = File(...)) -> ResumeExtractResponse:
+    """Upload a resume PDF to S3, extract text via Lambda, then delete the object."""
+    request_id = str(uuid.uuid4())
+    started = time.perf_counter()
+    filename = _safe_filename(file.filename)
+    pdf_bytes = await file.read()
+    _validate_pdf_upload(filename, file.content_type, pdf_bytes)
+
+    object_key: str | None = None
+    try:
+        object_key = await asyncio.to_thread(_upload_resume_pdf, pdf_bytes, filename)
+        result = await asyncio.to_thread(_invoke_resume_extractor, object_key, filename)
+    except HTTPException:
+        raise
+    except (BotoCoreError, ClientError) as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "CampusPath could not reach S3 or the resume extractor Lambda. "
+                "Check AWS credentials, region, bucket access, and that the SAM stack is deployed."
+            ),
+        ) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=502,
+            detail="Resume extraction failed unexpectedly.",
+        ) from exc
+    finally:
+        if object_key:
+            await asyncio.to_thread(_delete_resume_object, object_key)
+
+    resume_text = str(result.get("resume_text") or "").strip()
+    if len(resume_text) < 50:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Could not extract enough selectable text from the PDF. "
+                "Paste the resume text manually, or upload a text-based PDF."
+            ),
+        )
+    if len(resume_text) > MAX_RESUME_TEXT_CHARS:
+        resume_text = resume_text[:MAX_RESUME_TEXT_CHARS].rstrip()
+        warnings = list(result.get("warnings") or [])
+        warnings.append(
+            f"Extracted text was truncated to {MAX_RESUME_TEXT_CHARS} characters for resume review."
+        )
+    else:
+        warnings = list(result.get("warnings") or [])
+
+    return ResumeExtractResponse(
+        filename=str(result.get("filename") or filename),
+        content_type="application/pdf",
+        page_count=int(result.get("page_count") or 0),
+        character_count=len(resume_text),
+        resume_text=resume_text,
+        suggested_role=_suggest_role(resume_text),
+        warnings=warnings,
+        request_id=request_id,
+        latency_ms=round((time.perf_counter() - started) * 1000, 2),
+    )
+
+
 @app.post("/api/resume-review", response_model=AgentResponse)
 async def resume_review(body: ResumeRequest) -> AgentResponse:
     prompt = f"Target role: {body.target_role}\n\nResume:\n{body.resume_text}"
@@ -325,6 +599,13 @@ async def resume_review(body: ResumeRequest) -> AgentResponse:
 async def interview_prep(body: InterviewRequest) -> AgentResponse:
     prompt = (
         f"Target role: {body.role}\nInterview type: {body.interview_type}\n"
-        f"Level: {body.experience_level}\nFocus topics: {body.focus_topics}"
+        f"Level: {body.experience_level}\n"
+        f"Interview date: {body.interview_date.isoformat() if body.interview_date else 'Not provided'}\n"
+        f"Focus topics: {body.focus_topics}"
     )
+    if body.resume_text and body.resume_text.strip():
+        prompt += (
+            "\n\nCandidate resume (tailor questions to this experience):\n"
+            f"{body.resume_text.strip()}"
+        )
     return await _answer("interview-prep", prompt, body)

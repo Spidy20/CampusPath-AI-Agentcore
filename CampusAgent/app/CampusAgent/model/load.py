@@ -4,11 +4,11 @@ from strands.models.bedrock import BedrockModel
 
 DEFAULT_MODEL_ID = os.getenv(
     "BEDROCK_MODEL_ID",
-    "global.amazon.nova-2-lite-v1:0",
+    "apac.amazon.nova-pro-v1:0",
 )
 DEFAULT_TEMPERATURE = float(os.getenv("BEDROCK_TEMPERATURE", "0.4"))
 DEFAULT_TOP_P = float(os.getenv("BEDROCK_TOP_P", "0.9"))
-DEFAULT_MAX_TOKENS = int(os.getenv("BEDROCK_MAX_TOKENS", "2048"))
+DEFAULT_MAX_TOKENS = int(os.getenv("BEDROCK_MAX_TOKENS", "4096"))
 
 
 def load_model(

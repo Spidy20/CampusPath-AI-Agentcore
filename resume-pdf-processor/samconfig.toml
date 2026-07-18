@@ -1,0 +1,10 @@
+version = 0.1
+
+[default.deploy.parameters]
+stack_name = "campuspath-resume-pdf-processor"
+resolve_s3 = true
+s3_prefix = "campuspath-resume-pdf-processor"
+region = "ap-south-1"
+capabilities = "CAPABILITY_IAM"
+parameter_overrides = "ResumeBucketName=\"sagemaker-tutorials-mlhub\" ResumeKeyPrefix=\"resume-uploads/\" MaxPages=\"10\" MaxTextChars=\"20000\""
+image_repositories = []

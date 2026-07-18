@@ -26,7 +26,13 @@ Student browser
       ▼
 FastAPI gateway ──────► Strands Agent ──────► Amazon Bedrock
       │
-      └── serves the responsive frontend
+      ├── serves the responsive frontend
+      │
+      └── Resume PDF flow:
+            upload PDF ──► S3 (sagemaker-tutorials-mlhub)
+                         ──► Lambda (pypdf via AWS SAM)
+                         ──► editable extracted text
+                         ──► /api/resume-review
 
 AgentCore runtime ────► CampusPath Strands agent (deployable to AWS)
 ```
@@ -48,6 +54,10 @@ CampusPath-AI/
 │   └── backend/
 │       ├── main.py
 │       └── requirements.txt
+├── resume-pdf-processor/     # AWS SAM Lambda for PDF text extraction
+│   ├── template.yaml
+│   ├── src/
+│   └── tests/
 └── CampusAgent/              # AgentCore application only
     ├── app/CampusAgent/       # Strands + AgentCore runtime
     └── agentcore/             # AgentCore deployment configuration
@@ -67,7 +77,8 @@ export AWS_REGION=ap-south-1
 Optionally choose a different Bedrock model:
 
 ```bash
-export BEDROCK_MODEL_ID="global.amazon.nova-2-lite-v1:0"
+export BEDROCK_MODEL_ID="apac.amazon.nova-pro-v1:0"
+export BEDROCK_MAX_TOKENS=4096
 ```
 
 CampusPath applies custom prompt-level guardrails for prompt injection,
@@ -75,7 +86,42 @@ fabricated claims, cheating, sensitive information, abusive language, and
 off-topic requests. It does not require or configure an Amazon Bedrock
 Guardrail resource.
 
-### 2. Install and start
+### 2. Deploy the resume PDF extractor (SAM)
+
+Resume Review can extract selectable text from PDFs using a Lambda function and
+the existing S3 bucket `sagemaker-tutorials-mlhub` in `ap-south-1`.
+
+```bash
+cd resume-pdf-processor
+sam build
+sam deploy --guided \
+  --stack-name campuspath-resume-pdf-processor \
+  --capabilities CAPABILITY_IAM \
+  --region ap-south-1 \
+  --parameter-overrides \
+    ResumeBucketName=sagemaker-tutorials-mlhub \
+    ResumeKeyPrefix=resume-uploads/
+```
+
+Then export the function name used by FastAPI:
+
+```bash
+export AWS_REGION=ap-south-1
+export RESUME_BUCKET_NAME=sagemaker-tutorials-mlhub
+export RESUME_EXTRACTOR_FUNCTION_NAME=campuspath-resume-pdf-extractor
+```
+
+The FastAPI runtime principal needs:
+
+- `s3:PutObject` and `s3:DeleteObject` on
+  `arn:aws:s3:::sagemaker-tutorials-mlhub/resume-uploads/*`
+- `lambda:InvokeFunction` on the deployed extractor function
+
+Temporary PDF objects are deleted after extraction. Manual paste still works if
+the SAM stack is not deployed. See
+[`resume-pdf-processor/README.md`](resume-pdf-processor/README.md) for details.
+
+### 3. Install and start
 
 ```bash
 source campuspath-venv/bin/activate
@@ -113,6 +159,7 @@ export ALLOW_DEMO_FALLBACK=true
 | `GET` | `/api/health` | Service readiness |
 | `POST` | `/api/placement-doubt` | Placement coaching |
 | `POST` | `/api/career-roadmap` | Personalized career plan |
+| `POST` | `/api/resume-extract` | Upload resume PDF → S3/Lambda text extraction |
 | `POST` | `/api/resume-review` | Resume and ATS feedback |
 | `POST` | `/api/interview-prep` | Interview preparation pack |
 

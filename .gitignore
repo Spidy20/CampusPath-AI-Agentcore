@@ -54,3 +54,7 @@ Thumbs.db
 tmp/
 temp/
 .cache/
+
+# AWS SAM build artifacts
+.aws-sam/
+**/packaged.yaml

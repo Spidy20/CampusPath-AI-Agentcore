@@ -1,54 +1,26 @@
 {
 	"info": {
 		"_postman_id": "dd73c0cd-20f4-4dd1-934b-8fd0bb67e36d",
-		"name": "CampusPath AI - AgentCore",
-		"description": "# CampusPath AI AgentCore API\n\nAgentCore exposes a single HTTP endpoint: `POST /invocations`.\nCampusPath routes work by sending a required `route` field in the JSON body.\n\n## Allowed routes\n\n- `placement-doubt`\n- `career-roadmap`\n- `resume-review`\n- `interview-prep`\n\nYou may also send `action` instead of `route`. Invalid or missing values return a validation error with `allowed_routes`.\n\n## Shared model controls\n\nOptional on every request. Defaults are applied when omitted:\n\n| Field | Default |\n| --- | --- |\n| `model_id` | `global.amazon.nova-2-lite-v1:0` |\n| `temperature` | `0.4` |\n| `top_p` | `0.9` |\n| `max_tokens` | `2048` |\n\n## Response contract\n\nSuccessful responses include:\n\n- `route` and `route_title`\n- `answer`\n- `model_params` (values actually used)\n- `usage` (`input_tokens`, `output_tokens`, `total_tokens`)\n- `cost` (approximate USD estimate)\n- `latency_ms`\n\n## Start AgentCore\n\n```bash\nsource campuspath-venv/bin/activate\ncd CampusAgent\nagentcore dev --no-browser\n```",
+		"name": "CampusPath AI - AgentCore + FastAPI",
+		"description": "# CampusPath AI API\n\nThis collection covers both runtimes:\n\n1. **AgentCore** — `POST {{agentcoreUrl}}/invocations` with a required `route` (or `action`) field\n2. **FastAPI UI backend** — `POST {{fastapiUrl}}/api/...` endpoints used by the CampusPath frontend\n\n## Allowed routes\n\n- `placement-doubt`\n- `career-roadmap`\n- `resume-review`\n- `interview-prep`\n\n## Shared model controls\n\nOptional on every request. Defaults when omitted:\n\n| Field | Global default | Resume / Interview default |\n| --- | --- | --- |\n| `model_id` | `apac.amazon.nova-pro-v1:0` | `apac.anthropic.claude-3-7-sonnet-20250219-v1:0` |\n| `temperature` | `0.4` | `0.4` |\n| `top_p` | `0.9` | `0.9` |\n| `max_tokens` | `4096` | `4096` |\n\nEvery Bedrock call also receives a fresh `<current_datetime>` block (Asia/Kolkata by default).\n\n## Interview prep extras\n\n- `interview_date` (optional, `YYYY-MM-DD`) — prep plan is timed to that date\n- `resume_text` (optional) — questions and frameworks are tailored to the resume\n\n## Response contract\n\nSuccessful responses include:\n\n- `route` / `route_title` (AgentCore) or `route` (FastAPI)\n- `answer`\n- `model_params` (values actually used)\n- `usage` (`input_tokens`, `output_tokens`, `total_tokens`)\n- `cost` (approximate USD estimate)\n- `latency_ms`\n\n## Start services\n\n```bash\n# AgentCore (port 8080)\nsource campuspath-venv/bin/activate\ncd CampusAgent\nagentcore dev --no-browser\n\n# FastAPI UI backend (port 8000)\ncd Frontend\nuvicorn backend.main:app --reload --port 8000\n```",
 		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
 	},
 	"item": [
 		{
-			"name": "Runtime health",
-			"request": {
-				"method": "GET",
-				"header": [],
-				"url": "{{baseUrl}}/ping",
-				"description": "Checks whether the local AgentCore runtime is running."
-			},
-			"response": []
-		},
-		{
-			"name": "Validation examples",
+			"name": "1. FastAPI UI backend",
 			"item": [
 				{
-					"name": "Missing route - validation error",
+					"name": "Health",
 					"request": {
-						"method": "POST",
-						"header": [
-							{
-								"key": "Content-Type",
-								"value": "application/json"
-							},
-							{
-								"key": "X-Amzn-Bedrock-AgentCore-Runtime-Session-Id",
-								"value": "{{sessionId}}"
-							}
-						],
-						"body": {
-							"mode": "raw",
-							"raw": "{\n  \"prompt\": \"How should I prepare for campus placements?\"\n}",
-							"options": {
-								"raw": {
-									"language": "json"
-								}
-							}
-						},
-						"url": "{{baseUrl}}/invocations",
-						"description": "Omits `route` / `action`. Expect `ok: false` and a validation error listing allowed routes."
+						"method": "GET",
+						"header": [],
+						"url": "{{fastapiUrl}}/api/health",
+						"description": "Returns service status, global model defaults, resume-workflow model defaults, and resume-extraction config."
 					},
 					"response": []
 				},
 				{
-					"name": "Invalid route - validation error",
+					"name": "Placement doubt",
 					"request": {
 						"method": "POST",
 						"header": [
@@ -57,30 +29,174 @@
 								"value": "application/json"
 							},
 							{
-								"key": "X-Amzn-Bedrock-AgentCore-Runtime-Session-Id",
-								"value": "{{sessionId}}"
+								"key": "Accept",
+								"value": "application/json"
 							}
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n  \"route\": \"salary-negotiation\",\n  \"prompt\": \"What salary should I ask for?\"\n}",
+							"raw": "{\n  \"question\": \"Campus placements begin in 30 days. I know Python and basic DSA, but aptitude is weak. How should I prepare?\",\n  \"student_profile\": \"Third-year B.Tech CSE · Python · beginner DSA · weak aptitude\",\n  \"model_id\": \"{{modelId}}\",\n  \"temperature\": {{temperature}},\n  \"top_p\": {{topP}},\n  \"max_tokens\": {{maxTokens}}\n}",
 							"options": {
 								"raw": {
 									"language": "json"
 								}
 							}
 						},
-						"url": "{{baseUrl}}/invocations",
-						"description": "Uses an unsupported route. Expect a validation error."
+						"url": "{{fastapiUrl}}/api/placement-doubt",
+						"description": "`POST /api/placement-doubt`\n\nRequired: `question`\nOptional: `student_profile`, model controls\nDefault model: Nova Pro"
+					},
+					"response": []
+				},
+				{
+					"name": "Career roadmap",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Accept",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"goal\": \"Cloud / DevOps Engineer\",\n  \"degree\": \"B.Tech IT\",\n  \"year\": \"3rd year\",\n  \"skills\": \"Python, Git, Linux basics, introductory AWS\",\n  \"hours_per_week\": 10,\n  \"model_id\": \"{{modelId}}\",\n  \"temperature\": {{temperature}},\n  \"top_p\": {{topP}},\n  \"max_tokens\": {{maxTokens}}\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": "{{fastapiUrl}}/api/career-roadmap",
+						"description": "`POST /api/career-roadmap`\n\nRequired: `goal`, `degree`, `year`\nOptional: `skills`, `hours_per_week`, model controls\nDefault model: Nova Pro"
+					},
+					"response": []
+				},
+				{
+					"name": "Resume extract (PDF upload)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "file",
+									"type": "file",
+									"src": [],
+									"description": "Select a text-based resume PDF (max 5 MB)."
+								}
+							]
+						},
+						"url": "{{fastapiUrl}}/api/resume-extract",
+						"description": "`POST /api/resume-extract`\n\nMultipart field: `file` (PDF).\n\nFlow: FastAPI → S3 → SAM Lambda (`pypdf`) → delete object.\n\nResponse includes:\n- `resume_text`\n- `suggested_role` (most recent job title when possible)\n- `page_count`, `character_count`, `warnings`, `latency_ms`"
+					},
+					"response": []
+				},
+				{
+					"name": "Resume review",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Accept",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"target_role\": \"Machine Learning Engineer\",\n  \"resume_text\": \"Kushal Bhavsar\\nBengaluru | kushal@example.com | linkedin.com/in/kushal\\n\\nSUMMARY\\nML engineer focused on applied NLP and recommendation systems.\\n\\nWORK EXPERIENCE\\nMachine Learning Engineer — Acme AI Labs (Jan 2024 – Present)\\n- Built a product recommendation pipeline on AWS SageMaker serving 120k weekly users.\\n- Reduced inference latency by 28% by consolidating feature joins and batching.\\n\\nSoftware Developer Intern — StartupX (May 2023 – Dec 2023)\\n- Shipped FastAPI microservices and PostgreSQL schemas for an internal analytics tool.\\n\\nPROJECTS\\nCampus event platform — FastAPI, React, PostgreSQL, AWS\\n- Designed booking APIs and deployed the stack behind an Application Load Balancer.\\n\\nSKILLS\\nPython, PyTorch, FastAPI, SQL, AWS, Git\\n\\nEDUCATION\\nB.Tech Computer Engineering, graduating 2027\",\n  \"model_id\": \"{{resumeModelId}}\",\n  \"temperature\": {{temperature}},\n  \"top_p\": {{topP}},\n  \"max_tokens\": {{maxTokens}}\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": "{{fastapiUrl}}/api/resume-review",
+						"description": "`POST /api/resume-review`\n\nRequired: `target_role`, `resume_text` (min 50 chars)\nDefault model: Claude 3.7 Sonnet\n\nThe model is instructed to address the candidate by first name when present and ground feedback in real bullets/projects."
+					},
+					"response": []
+				},
+				{
+					"name": "Interview prep (with date + resume)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Accept",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"role\": \"Machine Learning Engineer\",\n  \"interview_type\": \"Mixed\",\n  \"experience_level\": \"Intermediate\",\n  \"interview_date\": \"2026-08-01\",\n  \"focus_topics\": \"Python, ML system design, AWS, project deep-dive, behavioral STAR\",\n  \"resume_text\": \"Kushal Bhavsar\\nBengaluru | kushal@example.com\\n\\nWORK EXPERIENCE\\nMachine Learning Engineer — Acme AI Labs (Jan 2024 – Present)\\n- Built a product recommendation pipeline on AWS SageMaker serving 120k weekly users.\\n- Reduced inference latency by 28% by consolidating feature joins and batching.\\n\\nSoftware Developer Intern — StartupX (May 2023 – Dec 2023)\\n- Shipped FastAPI microservices and PostgreSQL schemas for an internal analytics tool.\\n\\nPROJECTS\\nCampus event platform — FastAPI, React, PostgreSQL, AWS\\n\\nSKILLS\\nPython, PyTorch, FastAPI, SQL, AWS, Git\\n\\nEDUCATION\\nB.Tech Computer Engineering, graduating 2027\",\n  \"model_id\": \"{{resumeModelId}}\",\n  \"temperature\": {{temperature}},\n  \"top_p\": {{topP}},\n  \"max_tokens\": {{maxTokens}}\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": "{{fastapiUrl}}/api/interview-prep",
+						"description": "`POST /api/interview-prep`\n\nRequired: `role`\nOptional:\n- `interview_type` — Technical | HR | Mixed\n- `experience_level` — Beginner | Intermediate | Advanced\n- `interview_date` — YYYY-MM-DD (prep plan is timed to this date)\n- `focus_topics`\n- `resume_text` — personalizes questions around real experience\n\nDefault model: Claude 3.7 Sonnet"
+					},
+					"response": []
+				},
+				{
+					"name": "Interview prep (defaults only, no date)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"role\": \"Backend Developer\",\n  \"interview_type\": \"Technical\",\n  \"experience_level\": \"Beginner\",\n  \"focus_topics\": \"Python, REST APIs, SQL, college project discussion\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": "{{fastapiUrl}}/api/interview-prep",
+						"description": "Omits `interview_date`, `resume_text`, and model controls. Expect Claude 3.7 Sonnet defaults and a standard 7-day prep plan."
 					},
 					"response": []
 				}
 			],
-			"description": "Shows how CampusPath rejects missing or unknown routes."
+			"description": "Endpoints used by the CampusPath frontend (`uvicorn backend.main:app --port 8000`)."
 		},
 		{
-			"name": "Campus placement workflows",
+			"name": "2. AgentCore runtime",
 			"item": [
+				{
+					"name": "Runtime health (ping)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": "{{agentcoreUrl}}/ping",
+						"description": "Checks whether the local AgentCore runtime is running."
+					},
+					"response": []
+				},
 				{
 					"name": "Placement doubt",
 					"request": {
@@ -101,15 +217,15 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n  \"route\": \"placement-doubt\",\n  \"prompt\": \"I am a third-year B.Tech CSE student. I know Python and basic data structures, but my aptitude is weak. Campus placements begin in 30 days. Create a realistic preparation strategy that balances DSA, aptitude, core CS subjects, projects, and mock interviews. Include a seven-day starter plan.\",\n  \"model_id\": \"{{modelId}}\",\n  \"temperature\": {{temperature}},\n  \"top_p\": {{topP}},\n  \"max_tokens\": {{maxTokens}}\n}",
+							"raw": "{\n  \"route\": \"placement-doubt\",\n  \"question\": \"Campus placements begin in 30 days. I know Python and basic DSA, but aptitude is weak. How should I prepare?\",\n  \"student_profile\": \"Third-year B.Tech CSE · Python · beginner DSA · weak aptitude\",\n  \"model_id\": \"{{modelId}}\",\n  \"temperature\": {{temperature}},\n  \"top_p\": {{topP}},\n  \"max_tokens\": {{maxTokens}}\n}",
 							"options": {
 								"raw": {
 									"language": "json"
 								}
 							}
 						},
-						"url": "{{baseUrl}}/invocations",
-						"description": "Route: `placement-doubt`\n\nRequired:\n- `route` (or `action`)\n- `prompt` OR `question`\n\nOptional:\n- `student_profile`\n- `model_id`, `temperature`, `top_p`, `max_tokens`\n\nResponse includes answer, model_params used, Bedrock token usage, approximate cost, and latency."
+						"url": "{{agentcoreUrl}}/invocations",
+						"description": "Route: `placement-doubt`\n\nRequired: `route` (or `action`) + `prompt` OR `question`\nOptional: `student_profile`, model controls\nDefault model: Nova Pro"
 					},
 					"response": []
 				},
@@ -140,8 +256,8 @@
 								}
 							}
 						},
-						"url": "{{baseUrl}}/invocations",
-						"description": "Route: `career-roadmap`\n\nRequired:\n- `route`\n- `prompt` OR `goal`\n\nOptional structured fields: `degree`, `year`, `skills`, `hours_per_week` plus model controls."
+						"url": "{{agentcoreUrl}}/invocations",
+						"description": "Route: `career-roadmap`\n\nRequired: `route` + `prompt` OR `goal`\nOptional: `degree`, `year`, `skills`, `hours_per_week`, model controls"
 					},
 					"response": []
 				},
@@ -165,20 +281,20 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n  \"route\": \"resume-review\",\n  \"target_role\": \"Backend Developer\",\n  \"resume_text\": \"B.Tech Computer Engineering, graduating 2027.\\nSkills: Python, FastAPI, SQL, Git, AWS basics.\\nProject: Campus event platform - created APIs in FastAPI and used PostgreSQL. Deployed the application to AWS.\\nExperience: Technical club volunteer; helped organize two coding workshops for 80 students.\",\n  \"model_id\": \"{{modelId}}\",\n  \"temperature\": {{temperature}},\n  \"top_p\": {{topP}},\n  \"max_tokens\": {{maxTokens}}\n}",
+							"raw": "{\n  \"route\": \"resume-review\",\n  \"target_role\": \"Machine Learning Engineer\",\n  \"resume_text\": \"Kushal Bhavsar\\nBengaluru | kushal@example.com | linkedin.com/in/kushal\\n\\nSUMMARY\\nML engineer focused on applied NLP and recommendation systems.\\n\\nWORK EXPERIENCE\\nMachine Learning Engineer — Acme AI Labs (Jan 2024 – Present)\\n- Built a product recommendation pipeline on AWS SageMaker serving 120k weekly users.\\n- Reduced inference latency by 28% by consolidating feature joins and batching.\\n\\nSoftware Developer Intern — StartupX (May 2023 – Dec 2023)\\n- Shipped FastAPI microservices and PostgreSQL schemas for an internal analytics tool.\\n\\nPROJECTS\\nCampus event platform — FastAPI, React, PostgreSQL, AWS\\n- Designed booking APIs and deployed the stack behind an Application Load Balancer.\\n\\nSKILLS\\nPython, PyTorch, FastAPI, SQL, AWS, Git\\n\\nEDUCATION\\nB.Tech Computer Engineering, graduating 2027\",\n  \"model_id\": \"{{resumeModelId}}\",\n  \"temperature\": {{temperature}},\n  \"top_p\": {{topP}},\n  \"max_tokens\": {{maxTokens}}\n}",
 							"options": {
 								"raw": {
 									"language": "json"
 								}
 							}
 						},
-						"url": "{{baseUrl}}/invocations",
-						"description": "Route: `resume-review`\n\nRequired:\n- `route`\n- `prompt` OR `resume_text`\n\nOptional: `target_role` and model controls. Avoid sensitive personal data in demos."
+						"url": "{{agentcoreUrl}}/invocations",
+						"description": "Route: `resume-review`\n\nRequired: `route` + `prompt` OR `resume_text`\nOptional: `target_role`, model controls\nDefault model when omitted: Claude 3.7 Sonnet"
 					},
 					"response": []
 				},
 				{
-					"name": "Interview preparation",
+					"name": "Interview prep (with date + resume)",
 					"request": {
 						"method": "POST",
 						"header": [
@@ -197,15 +313,15 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n  \"route\": \"interview-prep\",\n  \"role\": \"Backend Developer\",\n  \"interview_type\": \"Mixed\",\n  \"experience_level\": \"Beginner\",\n  \"focus_topics\": \"Python, REST APIs, SQL, database design, college project discussion\",\n  \"model_id\": \"{{modelId}}\",\n  \"temperature\": {{temperature}},\n  \"top_p\": {{topP}},\n  \"max_tokens\": {{maxTokens}}\n}",
+							"raw": "{\n  \"route\": \"interview-prep\",\n  \"role\": \"Machine Learning Engineer\",\n  \"interview_type\": \"Mixed\",\n  \"experience_level\": \"Intermediate\",\n  \"interview_date\": \"2026-08-01\",\n  \"focus_topics\": \"Python, ML system design, AWS, project deep-dive, behavioral STAR\",\n  \"resume_text\": \"Kushal Bhavsar\\nBengaluru | kushal@example.com\\n\\nWORK EXPERIENCE\\nMachine Learning Engineer — Acme AI Labs (Jan 2024 – Present)\\n- Built a product recommendation pipeline on AWS SageMaker serving 120k weekly users.\\n- Reduced inference latency by 28% by consolidating feature joins and batching.\\n\\nSoftware Developer Intern — StartupX (May 2023 – Dec 2023)\\n- Shipped FastAPI microservices and PostgreSQL schemas for an internal analytics tool.\\n\\nPROJECTS\\nCampus event platform — FastAPI, React, PostgreSQL, AWS\\n\\nSKILLS\\nPython, PyTorch, FastAPI, SQL, AWS, Git\\n\\nEDUCATION\\nB.Tech Computer Engineering, graduating 2027\",\n  \"model_id\": \"{{resumeModelId}}\",\n  \"temperature\": {{temperature}},\n  \"top_p\": {{topP}},\n  \"max_tokens\": {{maxTokens}}\n}",
 							"options": {
 								"raw": {
 									"language": "json"
 								}
 							}
 						},
-						"url": "{{baseUrl}}/invocations",
-						"description": "Route: `interview-prep`\n\nRequired:\n- `route`\n- `prompt` OR `role`\n\nOptional: `interview_type`, `experience_level`, `focus_topics`, plus model controls."
+						"url": "{{agentcoreUrl}}/invocations",
+						"description": "Route: `interview-prep`\n\nRequired: `route` + `prompt` OR `role`\nOptional: `interview_type`, `experience_level`, `interview_date`, `focus_topics`, `resume_text`, model controls\n\nWith `interview_date`, the prep timeline is calculated from today's date through the day before the interview."
 					},
 					"response": []
 				},
@@ -232,8 +348,8 @@
 								}
 							}
 						},
-						"url": "{{baseUrl}}/invocations",
-						"description": "Omits model controls so the agent applies defaults. Response still echoes the resolved `model_params`."
+						"url": "{{agentcoreUrl}}/invocations",
+						"description": "Omits model controls so AgentCore applies Nova Pro / 4096 defaults. Response still echoes resolved `model_params`."
 					},
 					"response": []
 				}
@@ -241,8 +357,64 @@
 			"description": "All workflows hit `POST /invocations` and are selected with the body `route` field."
 		},
 		{
-			"name": "Payload format examples",
+			"name": "3. Validation & payload formats",
 			"item": [
+				{
+					"name": "Missing route - validation error",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "X-Amzn-Bedrock-AgentCore-Runtime-Session-Id",
+								"value": "{{sessionId}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"prompt\": \"How should I prepare for campus placements?\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": "{{agentcoreUrl}}/invocations",
+						"description": "Omits `route` / `action`. Expect `ok: false` and a validation error listing allowed routes."
+					},
+					"response": []
+				},
+				{
+					"name": "Invalid route - validation error",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "X-Amzn-Bedrock-AgentCore-Runtime-Session-Id",
+								"value": "{{sessionId}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"route\": \"salary-negotiation\",\n  \"prompt\": \"What salary should I ask for?\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": "{{agentcoreUrl}}/invocations",
+						"description": "Uses an unsupported route. Expect a validation error."
+					},
+					"response": []
+				},
 				{
 					"name": "Using action alias",
 					"request": {
@@ -266,7 +438,7 @@
 								}
 							}
 						},
-						"url": "{{baseUrl}}/invocations",
+						"url": "{{agentcoreUrl}}/invocations",
 						"description": "`action` is accepted as an alias for `route`."
 					},
 					"response": []
@@ -294,18 +466,22 @@
 								}
 							}
 						},
-						"url": "{{baseUrl}}/invocations",
+						"url": "{{agentcoreUrl}}/invocations",
 						"description": "Uses Bedrock-style `messages[]` content blocks with a required `route`."
 					},
 					"response": []
 				}
 			],
-			"description": "Extra payload shapes supported by the CampusPath AgentCore entrypoint."
+			"description": "Validation failures and alternate AgentCore payload shapes."
 		}
 	],
 	"variable": [
 		{
-			"key": "baseUrl",
+			"key": "fastapiUrl",
+			"value": "http://localhost:8000"
+		},
+		{
+			"key": "agentcoreUrl",
 			"value": "http://localhost:8080"
 		},
 		{
@@ -314,7 +490,11 @@
 		},
 		{
 			"key": "modelId",
-			"value": "global.amazon.nova-2-lite-v1:0"
+			"value": "apac.amazon.nova-pro-v1:0"
+		},
+		{
+			"key": "resumeModelId",
+			"value": "apac.anthropic.claude-3-7-sonnet-20250219-v1:0"
 		},
 		{
 			"key": "temperature",
@@ -326,7 +506,7 @@
 		},
 		{
 			"key": "maxTokens",
-			"value": "2048"
+			"value": "4096"
 		}
 	]
 }

@@ -1,0 +1,70 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: CampusPath resume PDF text extractor (pypdf on Lambda)
+
+Parameters:
+  ResumeBucketName:
+    Type: String
+    Default: sagemaker-tutorials-mlhub
+    Description: Existing S3 bucket that temporarily stores uploaded resume PDFs.
+  ResumeKeyPrefix:
+    Type: String
+    Default: resume-uploads/
+    Description: Allowed object key prefix for temporary resume uploads.
+  MaxPages:
+    Type: Number
+    Default: 10
+    MinValue: 1
+    MaxValue: 50
+    Description: Maximum PDF pages the extractor will process.
+  MaxTextChars:
+    Type: Number
+    Default: 20000
+    MinValue: 1000
+    MaxValue: 100000
+    Description: Maximum characters returned to the caller (matches resume-review limit).
+
+Globals:
+  Function:
+    Timeout: 30
+    MemorySize: 512
+    Runtime: python3.12
+    Architectures:
+      - x86_64
+
+Resources:
+  ResumePdfExtractorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: campuspath-resume-pdf-extractor
+      CodeUri: src/
+      Handler: app.lambda_handler
+      Description: Extracts selectable text from resume PDFs stored in S3.
+      Environment:
+        Variables:
+          RESUME_BUCKET_NAME: !Ref ResumeBucketName
+          RESUME_KEY_PREFIX: !Ref ResumeKeyPrefix
+          MAX_PAGES: !Ref MaxPages
+          MAX_TEXT_CHARS: !Ref MaxTextChars
+          MAX_FILE_BYTES: "5242880"
+      Policies:
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+              Resource: !Sub "arn:aws:s3:::${ResumeBucketName}/${ResumeKeyPrefix}*"
+
+Outputs:
+  ResumePdfExtractorFunctionName:
+    Description: Name of the resume PDF extractor Lambda
+    Value: !Ref ResumePdfExtractorFunction
+  ResumePdfExtractorFunctionArn:
+    Description: ARN of the resume PDF extractor Lambda
+    Value: !GetAtt ResumePdfExtractorFunction.Arn
+  ResumeBucketName:
+    Description: S3 bucket used for temporary resume uploads
+    Value: !Ref ResumeBucketName
+  ResumeKeyPrefix:
+    Description: Allowed S3 key prefix for temporary resume uploads
+    Value: !Ref ResumeKeyPrefix

@@ -4,9 +4,24 @@ agentcore create --name CampusAgent \
  --model-provider Bedrock \
  --memory none 
 
+cd CampusAgent
 agentcore dev --no-browser
 
 
+# Resume PDF extractor (SAM)
+cd resume-pdf-processor
+sam build --use-container
+sam deploy --guided \
+  --stack-name campuspath-resume-pdf-processor \
+  --capabilities CAPABILITY_IAM \
+  --region ap-south-1 \
+  --parameter-overrides \
+    ResumeBucketName=sagemaker-tutorials-mlhub \
+    ResumeKeyPrefix=resume-uploads/
+
+export AWS_REGION=ap-south-1
+export RESUME_BUCKET_NAME=sagemaker-tutorials-mlhub
+export RESUME_EXTRACTOR_FUNCTION_NAME=campuspath-resume-pdf-extractor
+
 cd Frontend
 uvicorn backend.main:app --reload --port 8000
-
