@@ -24,10 +24,10 @@ export RESUME_BUCKET_NAME=sagemaker-tutorials-mlhub
 export RESUME_EXTRACTOR_FUNCTION_NAME=campuspath-resume-pdf-extractor
 
 cd Frontend
-uvicorn backend.main:app --reload --port 8000
+uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
 
 
-Agentcore Gateway URL
-
-https://gateway-quick-start-5f89e2-uebqiqlxy2.gateway.bedrock-agentcore.ap-south-1.amazonaws.com/	
-target-quick-start-1505a4/invocations
+# AgentCore environments (UI Dev/Prod switch)
+export AGENTCORE_DEV_URL=http://localhost:8080/invocations
+export AGENTCORE_PROD_URL=https://gateway-quick-start-5f89e2-uebqiqlxy2.gateway.bedrock-agentcore.ap-south-1.amazonaws.com/target-quick-start-1505a4/invocations
+# export AGENTCORE_GATEWAY_TOKEN=<bearer token if the gateway requires auth>

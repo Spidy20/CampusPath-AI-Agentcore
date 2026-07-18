@@ -58,3 +58,4 @@ temp/
 # AWS SAM build artifacts
 .aws-sam/
 **/packaged.yaml
+test-pem-key.pem

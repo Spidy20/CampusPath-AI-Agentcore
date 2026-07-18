@@ -9,7 +9,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="/static/styles.css?v=7" />
+    <link rel="stylesheet" href="/static/styles.css?v=9" />
   </head>
   <body>
     <div class="ambient ambient-one"></div>
@@ -21,6 +21,10 @@
         <span>CampusPath <strong>AI</strong></span>
       </a>
       <div class="topbar-actions">
+        <div class="env-switch" role="group" aria-label="Environment" title="Dev: local AgentCore · Prod: deployed gateway">
+          <button id="envDev" class="env-option active" type="button">Dev</button>
+          <button id="envProd" class="env-option" type="button">Prod</button>
+        </div>
         <div class="status"><span class="status-dot"></span><span id="statusText">Checking AI service</span></div>
         <button id="themeToggle" class="icon-button" type="button" aria-label="Switch to dark theme" title="Toggle theme">
           <span class="theme-icon">◐</span>
@@ -272,6 +276,6 @@
     <footer><span>CampusPath AI</span><span>Guidance, not guarantees · Always verify company-specific details</span></footer>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/dompurify/dist/purify.min.js"></script>
-    <script src="/static/app.js?v=8"></script>
+    <script src="/static/app.js?v=9"></script>
   </body>
 </html>

@@ -117,12 +117,34 @@ tabs.forEach((tab) => {
   });
 });
 
+// Dev = local AgentCore runtime (with direct-Bedrock fallback);
+// Prod = deployed AgentCore gateway. Persisted across visits.
+let activeEnvironment = localStorage.getItem("campuspath-env") === "prod" ? "prod" : "dev";
+const envButtons = { dev: document.querySelector("#envDev"), prod: document.querySelector("#envProd") };
+
+function applyEnvironment(env) {
+  activeEnvironment = env;
+  localStorage.setItem("campuspath-env", env);
+  Object.entries(envButtons).forEach(([key, button]) => {
+    button.classList.toggle("active", key === env);
+    button.classList.toggle("prod", key === env && env === "prod");
+  });
+  const text = document.querySelector("#statusText");
+  if (text && !text.textContent.includes("unavailable")) {
+    text.textContent = env === "prod" ? "AI service · Prod gateway" : "AI service · Dev (local)";
+  }
+}
+
+envButtons.dev.addEventListener("click", () => applyEnvironment("dev"));
+envButtons.prod.addEventListener("click", () => applyEnvironment("prod"));
+
 function modelParams() {
   return {
     model_id: modelId.value,
     temperature: Number(temperature.value),
     top_p: Number(topP.value),
     max_tokens: Number(maxTokens.value),
+    environment: activeEnvironment,
   };
 }
 
@@ -449,7 +471,7 @@ async function checkHealth() {
     if (!response.ok) throw new Error();
     const data = await response.json();
     status.classList.add("online");
-    text.textContent = "AI service online";
+    text.textContent = activeEnvironment === "prod" ? "AI service · Prod gateway" : "AI service · Dev (local)";
     if (data.defaults) {
       if (![...modelId.options].some((option) => option.value === data.defaults.model_id)) {
         modelId.add(new Option(data.defaults.model_id, data.defaults.model_id));
@@ -782,5 +804,6 @@ window.addEventListener("error", (event) => {
 const savedTheme = localStorage.getItem("campuspath-theme");
 const preferredTheme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 setTheme(savedTheme || preferredTheme);
+applyEnvironment(activeEnvironment);
 updateSettingsSummary();
 checkHealth();

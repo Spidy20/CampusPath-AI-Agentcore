@@ -7,6 +7,8 @@ import json
 import os
 import re
 import time
+import urllib.error
+import urllib.request
 import uuid
 from datetime import date
 from pathlib import Path
@@ -47,6 +49,19 @@ ROUTE_MODEL_DEFAULTS = {
     "resume-review": RESUME_WORKFLOWS_MODEL_ID,
     "interview-prep": RESUME_WORKFLOWS_MODEL_ID,
 }
+
+# Where each UI environment sends workflow requests.
+# dev  -> local AgentCore runtime (`agentcore dev`), falling back to direct
+#         Bedrock if the local runtime is not running.
+# prod -> the deployed AgentCore gateway.
+AGENTCORE_DEV_URL = os.getenv("AGENTCORE_DEV_URL", "http://localhost:8080/invocations")
+AGENTCORE_PROD_URL = os.getenv(
+    "AGENTCORE_PROD_URL",
+    "https://gateway-quick-start-5f89e2-uebqiqlxy2.gateway.bedrock-agentcore."
+    "ap-south-1.amazonaws.com/target-quick-start-1505a4/invocations",
+)
+AGENTCORE_GATEWAY_TOKEN = os.getenv("AGENTCORE_GATEWAY_TOKEN", "")
+AGENTCORE_TIMEOUT_SECONDS = float(os.getenv("AGENTCORE_TIMEOUT_SECONDS", "180"))
 
 AWS_REGION = os.getenv("AWS_REGION") or os.getenv("AWS_DEFAULT_REGION") or "ap-south-1"
 RESUME_BUCKET_NAME = os.getenv("RESUME_BUCKET_NAME", "sagemaker-tutorials-mlhub")
@@ -127,6 +142,7 @@ class ModelParamsMixin(BaseModel):
     temperature: float | None = Field(default=None, ge=0.0, le=1.0)
     top_p: float | None = Field(default=None, ge=0.0, le=1.0)
     max_tokens: int | None = Field(default=None, ge=1, le=8192)
+    environment: Literal["dev", "prod"] = "dev"
 
 
 class AskRequest(ModelParamsMixin):
@@ -181,7 +197,7 @@ class CostInfo(BaseModel):
 class AgentResponse(BaseModel):
     ok: bool = True
     answer: str
-    mode: Literal["bedrock", "demo"]
+    mode: Literal["bedrock", "demo", "agentcore-dev", "agentcore-prod"]
     request_id: str
     route: str
     model_params: ModelParams
@@ -302,6 +318,69 @@ def _invoke_bedrock(route: str, user_prompt: str, params: ModelParams) -> tuple[
     return answer, _extract_usage(result)
 
 
+def _invoke_agentcore(route: str, user_prompt: str, params: ModelParams, environment: str) -> dict:
+    """Send the workflow request to an AgentCore runtime (local dev or gateway)."""
+    url = AGENTCORE_PROD_URL if environment == "prod" else AGENTCORE_DEV_URL
+    payload = {
+        "route": route,
+        "prompt": user_prompt,
+        "model_id": params.model_id,
+        "temperature": params.temperature,
+        "top_p": params.top_p,
+        "max_tokens": params.max_tokens,
+    }
+    headers = {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "X-Amzn-Bedrock-AgentCore-Runtime-Session-Id": f"campuspath-ui-{uuid.uuid4().hex}",
+    }
+    if environment == "prod" and AGENTCORE_GATEWAY_TOKEN:
+        headers["Authorization"] = f"Bearer {AGENTCORE_GATEWAY_TOKEN}"
+
+    request = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers=headers,
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=AGENTCORE_TIMEOUT_SECONDS) as response:
+        body = json.loads(response.read().decode("utf-8") or "{}")
+
+    if not isinstance(body, dict) or not body.get("ok", True) or not body.get("answer"):
+        error = body.get("error") if isinstance(body, dict) else None
+        message = error.get("message") if isinstance(error, dict) else str(error or "AgentCore returned no answer.")
+        raise RuntimeError(message)
+    return body
+
+
+def _agentcore_response(
+    body: dict, route: str, params: ModelParams, environment: str, request_id: str, started: float
+) -> AgentResponse:
+    usage_raw = body.get("usage") or {}
+    usage = UsageInfo(
+        input_tokens=int(usage_raw.get("input_tokens") or 0),
+        output_tokens=int(usage_raw.get("output_tokens") or 0),
+        total_tokens=int(usage_raw.get("total_tokens") or 0),
+    )
+    params_raw = body.get("model_params") or {}
+    resolved = ModelParams(
+        model_id=str(params_raw.get("model_id") or params.model_id),
+        temperature=float(params_raw.get("temperature", params.temperature)),
+        top_p=float(params_raw.get("top_p", params.top_p)),
+        max_tokens=int(params_raw.get("max_tokens", params.max_tokens)),
+    )
+    return AgentResponse(
+        answer=str(body.get("answer") or ""),
+        mode=f"agentcore-{environment}",
+        request_id=str(body.get("request_id") or request_id),
+        route=route,
+        model_params=resolved,
+        usage=usage,
+        cost=_estimate_cost_usd(resolved.model_id, usage),
+        latency_ms=round((time.perf_counter() - started) * 1000, 2),
+    )
+
+
 def _demo_answer(route: str) -> str:
     samples = {
         "placement-doubt": "## Recommended approach\n\n1. Identify the exact role and its top five skills.\n2. Practise aptitude and one coding topic daily.\n3. Prepare two project stories using Situation, Task, Action, Result.\n\n## Next 7 days\n\nComplete one mock test, revise your resume, and attempt two mock interviews.",
@@ -329,6 +408,36 @@ async def _answer(route: str, user_prompt: str, body: ModelParamsMixin) -> Agent
             cost=_estimate_cost_usd(params.model_id, usage),
             latency_ms=round((time.perf_counter() - started) * 1000, 2),
         )
+
+    environment = getattr(body, "environment", "dev")
+
+    if environment == "prod":
+        try:
+            result = await asyncio.to_thread(
+                _invoke_agentcore, route, user_prompt, params, "prod"
+            )
+            return _agentcore_response(result, route, params, "prod", request_id, started)
+        except (urllib.error.URLError, TimeoutError) as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "Could not reach the deployed AgentCore gateway. Check AGENTCORE_PROD_URL, "
+                    "network access, and gateway credentials, or switch back to Dev."
+                ),
+            ) from exc
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(
+                status_code=502,
+                detail=f"AgentCore gateway request failed: {str(exc)[:300]}",
+            ) from exc
+
+    # Dev: prefer the local AgentCore runtime; fall back to direct Bedrock so
+    # the app still works when `agentcore dev` is not running.
+    try:
+        result = await asyncio.to_thread(_invoke_agentcore, route, user_prompt, params, "dev")
+        return _agentcore_response(result, route, params, "dev", request_id, started)
+    except (urllib.error.URLError, TimeoutError):
+        pass
 
     try:
         answer, usage = await asyncio.to_thread(_invoke_bedrock, route, user_prompt, params)
@@ -502,6 +611,10 @@ async def health() -> dict[str, object]:
             "max_tokens": DEFAULT_MAX_TOKENS,
         },
         "route_model_defaults": ROUTE_MODEL_DEFAULTS,
+        "environments": {
+            "dev": AGENTCORE_DEV_URL,
+            "prod": AGENTCORE_PROD_URL,
+        },
         "resume_extraction": {
             "bucket": RESUME_BUCKET_NAME,
             "function_name": RESUME_EXTRACTOR_FUNCTION_NAME,
