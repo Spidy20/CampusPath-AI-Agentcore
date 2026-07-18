@@ -25,3 +25,9 @@ export RESUME_EXTRACTOR_FUNCTION_NAME=campuspath-resume-pdf-extractor
 
 cd Frontend
 uvicorn backend.main:app --reload --port 8000
+
+
+Agentcore Gateway URL
+
+https://gateway-quick-start-5f89e2-uebqiqlxy2.gateway.bedrock-agentcore.ap-south-1.amazonaws.com/	
+target-quick-start-1505a4/invocations

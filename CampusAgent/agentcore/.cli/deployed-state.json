@@ -1,3 +1,17 @@
 {
-  "targets": {}
+  "targets": {
+    "default": {
+      "resources": {
+        "runtimes": {
+          "CampusAgent": {
+            "runtimeId": "CampusAgent_CampusAgent-0bdifeBbfA",
+            "runtimeArn": "arn:aws:bedrock-agentcore:ap-south-1:179822996285:runtime/CampusAgent_CampusAgent-0bdifeBbfA",
+            "roleArn": "arn:aws:iam::179822996285:role/AgentCore-CampusAgent-def-ApplicationAgentCampusAge-LoFfR2HSKx8Q"
+          }
+        },
+        "stackName": "AgentCore-CampusAgent-default",
+        "deployHash": "51c86538e56d9578"
+      }
+    }
+  }
 }
